@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 import augrs
+from conftest import cv2_arm_build
 
 FORMATS = ["pascal_voc", "coco", "yolo", "albumentations"]
 
@@ -77,8 +78,10 @@ def test_resize_linear_matches_opencv(image, size):
     diff = np.abs(ro["image"].astype(int) - ao["image"].astype(int))
     assert ro["image"].shape == ao["image"].shape
     assert diff.max() <= 1, diff.max()
-    # same fixed-point arithmetic as OpenCV: (nearly) bit-exact
-    assert (diff > 0).mean() < 0.005, (diff > 0).mean()
+    # same fixed-point arithmetic as OpenCV's x86-64 build: (nearly) bit-exact. OpenCV's arm
+    # builds round differently for some sizes (about 22% of pixels by one level; see cv2_arm_build)
+    limit = 0.3 if cv2_arm_build() else 0.005
+    assert (diff > 0).mean() < limit, (diff > 0).mean()
     np.testing.assert_allclose(ro["bboxes"], np.asarray(ao["bboxes"]), atol=1e-4)
 
 

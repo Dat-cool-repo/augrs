@@ -1,4 +1,5 @@
 import os
+import platform
 import warnings
 
 import numpy as np
@@ -36,15 +37,45 @@ def cv2_hsv_fused() -> bool:
     return int(cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)[0, 0, 1]) == 114
 
 
+def cv2_arm_build() -> bool:
+    """Is the installed OpenCV an arm64/aarch64 build (macOS on Apple silicon, Linux aarch64)?
+
+    OpenCV's arm builds use different kernels for a few 8-bit ops than its x86-64 builds:
+    INTER_LINEAR resize rounds differently for some sizes (about 22% of pixels move by one
+    level when downscaling by ~2x, up to two levels on some single-channel upscales), the
+    CLAHE tile blend gives a different f32 rounding (< 0.5% of pixels, one level) and the
+    HSV round trip differs on slightly more values than the Windows build.
+
+    augrs itself computes the same results on every CPU (integer / non-contracted IEEE f32
+    arithmetic; CI also runs these tests on x86 with ``AUGRS_FORCE_SCALAR=1``, the portable
+    kernels that arm uses), so the tests that are exact against x86 OpenCV allow these
+    documented differences on arm instead of being skipped.
+    """
+    return platform.machine().lower() in ("arm64", "aarch64")
+
+
+def assert_cv2_u8_equal(actual, desired, arm_frac=1e-2):
+    """Exact against x86-64 OpenCV; on arm builds at most 1 level on < ``arm_frac`` of values."""
+    if not cv2_arm_build():
+        np.testing.assert_array_equal(actual, desired)
+        return
+    diff = np.abs(np.asarray(actual, dtype=np.int64) - np.asarray(desired, dtype=np.int64))
+    assert np.asarray(actual).shape == np.asarray(desired).shape
+    assert diff.max() <= 1, diff.max()
+    assert (diff > 0).mean() < arm_frac, (diff > 0).mean()
+
+
 def assert_hsv_equal(actual, desired):
-    """Exact when OpenCV uses FMA (Linux x86-64 wheels), else at most 1 level on < 0.1% of values."""
+    """Exact when OpenCV uses FMA (Linux x86-64 wheels), else at most 1 level on < 0.1% of values
+    (< 0.3% on arm builds, see ``cv2_arm_build``)."""
     if cv2_hsv_fused():
         np.testing.assert_array_equal(actual, desired)
     else:
         diff = np.abs(np.asarray(actual, dtype=np.float64) - np.asarray(desired, dtype=np.float64))
         scale = 1.0 if np.asarray(desired).dtype == np.uint8 else 1.0 / 255
+        limit = 3e-3 if cv2_arm_build() else 1e-3
         assert diff.max() <= scale + 1e-6, diff.max()
-        assert (diff > 1e-6).mean() < 1e-3, (diff > 1e-6).mean()
+        assert (diff > 1e-6).mean() < limit, (diff > 1e-6).mean()
 
 
 @pytest.fixture

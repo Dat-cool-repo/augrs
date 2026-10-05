@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 import augrs
-from conftest import assert_hsv_equal
+from conftest import assert_cv2_u8_equal, assert_hsv_equal, cv2_arm_build
 
 FORMATS = ["pascal_voc", "coco", "yolo", "albumentations"]
 
@@ -106,7 +106,7 @@ def test_clahe_gray_exact(make_image, shape, tiles, clip):
     img = make_image(*shape)[..., 1]
     kw = dict(clip_limit=(clip, clip), tile_grid_size=tiles, p=1)
     a, r = one(A.CLAHE(**kw), augrs.CLAHE(**kw), image=img)
-    np.testing.assert_array_equal(r["image"], a["image"])
+    assert_cv2_u8_equal(r["image"], a["image"])  # exact on x86-64 OpenCV
 
 
 @pytest.mark.parametrize("clip", [1.0, 2.0, 4.0])
@@ -325,7 +325,9 @@ def test_mask_interpolation_linear(image, size):
     np.testing.assert_allclose(t(image=image, mask=soft)["mask"], ref, atol=1e-4)
     u8 = image[..., 1]
     out = augrs.Compose([augrs.Resize(*size, mask_interpolation=1)], seed=0)(image=image, mask=u8)["mask"]
-    assert np.abs(out.astype(int) - cv2.resize(u8, size[::-1], interpolation=cv2.INTER_LINEAR).astype(int)).max() <= 1
+    # OpenCV's arm builds use a lower-precision kernel for some single-channel upscales
+    max_diff = 2 if cv2_arm_build() else 1
+    assert np.abs(out.astype(int) - cv2.resize(u8, size[::-1], interpolation=cv2.INTER_LINEAR).astype(int)).max() <= max_diff
 
 
 def test_pad_if_needed_divisor_and_crop_padding(image):

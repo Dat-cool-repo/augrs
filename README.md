@@ -76,7 +76,7 @@ parameters**, since augrs uses its own random number generator: random transform
 | `CenterCrop` | Bit-exact | Including `pad_if_needed` |
 | `RandomCrop` | Bit-exact | Same crop/pad path as `CenterCrop`; the window is sampled by augrs |
 | `PadIfNeeded` | Bit-exact | `min_height`/`min_width` and `pad_*_divisor` |
-| `Resize` | Close | Linear: max diff 1 level on < 0.5% of pixels. Nearest: bit-exact (`INTER_NEAREST_EXACT`). Cubic/area/lanczos: antialiased `fast_image_resize` kernels |
+| `Resize` | Close | Linear: max diff 1 level on < 0.5% of pixels<sup>2</sup>. Nearest: bit-exact (`INTER_NEAREST_EXACT`). Cubic/area/lanczos: antialiased `fast_image_resize` kernels |
 | `RandomResizedCrop` | Close | Crop + `Resize`; window sampling follows torchvision/Albumentations |
 | `LongestMaxSize`, `SmallestMaxSize` | Close | As `Resize`; a list of sizes picks one at random |
 | `Rotate` | Close | vs `cv2.warpAffine` with the same matrix: mean diff < 0.6 (OpenCV quantises to 1/32 px); `crop_border`, `fit_output` |
@@ -94,7 +94,7 @@ parameters**, since augrs uses its own random number generator: random transform
 | `RandomBrightnessContrast` | Bit-exact | uint8; float32 within 1e-6. `brightness_by_max`, `ensure_safe_range` |
 | `RandomGamma` | Bit-exact | uint8 |
 | `ToGray` | Bit-exact | `weighted_average`, `average`, `max`, `desaturation`; 1 or 3 output channels |
-| `CLAHE` | Close | Gray images bit-exact; RGB mean diff < 1 level (float Lab conversion) |
+| `CLAHE` | Close | Gray images bit-exact<sup>2</sup>; RGB mean diff < 1 level (float Lab conversion) |
 | `GaussianBlur` | Close | Within 1 level of OpenCV |
 | `Normalize` | Close | Within 2e-4; `standard`, `image`, `image_per_channel`, `min_max`, `min_max_per_channel` |
 | `GaussNoise` | Differs | Same distribution parameters; different sampler (see below) |
@@ -102,6 +102,13 @@ parameters**, since augrs uses its own random number generator: random transform
 
 <sup>1</sup> Bit-exact against OpenCV builds that fuse multiply-adds (the Linux x86-64 wheels).
 OpenCV's Windows (MSVC) wheels do not, and about 0.01% of values differ by one level there.
+
+<sup>2</sup> Against OpenCV's x86-64 builds. OpenCV's arm64 builds (macOS on Apple silicon, Linux
+aarch64) use different kernels for some 8-bit ops, so the reference itself moves: linear resize
+differs by one level on up to ~22% of pixels for some sizes (two levels on some single-channel
+upscales), gray CLAHE on < 0.5% of pixels, and the HSV round trip<sup>1</sup> on about 0.1% of
+values. augrs produces the same output on x86 and arm; the tests allow these differences only on
+arm builds of OpenCV.
 
 ### Compositions
 
