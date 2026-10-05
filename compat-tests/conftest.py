@@ -66,9 +66,11 @@ def assert_cv2_u8_equal(actual, desired, arm_frac=1e-2):
 
 
 def assert_hsv_equal(actual, desired):
-    """Exact when OpenCV uses FMA (Linux x86-64 wheels), else at most 1 level on < 0.1% of values
-    (< 0.3% on arm builds, see ``cv2_arm_build``)."""
-    if cv2_hsv_fused():
+    """Exact when OpenCV uses FMA on x86-64 (Linux x86-64 wheels), else at most 1 level on < 0.1% of
+    values (< 0.3% on arm builds, see ``cv2_arm_build``). Linux aarch64 OpenCV also fuses
+    multiply-adds, but its arm kernels still differ from x86 on ~0.02-0.07% of values, so arm builds
+    always take the tolerant branch."""
+    if cv2_hsv_fused() and not cv2_arm_build():
         np.testing.assert_array_equal(actual, desired)
     else:
         diff = np.abs(np.asarray(actual, dtype=np.float64) - np.asarray(desired, dtype=np.float64))
