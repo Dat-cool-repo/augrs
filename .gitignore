@@ -1,0 +1,43 @@
+# Rust build output
+/target/
+**/target/
+
+# Python build output / native extensions / wheels
+dist/
+build/
+*.so
+*.pyd
+*.dylib
+*.dll
+*.whl
+*.tar.gz
+*.egg-info/
+__pycache__/
+*.py[cod]
+
+# test / tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+proptest-regressions/
+
+# virtual environments
+.venv/
+.venv*/
+venv/
+env/
+venvs/
+
+# benchmark data (COCO subset) is downloaded by scripts/fetch_coco_subset.sh, never committed
+/data/
+data/
+benches/results/*.raw.json
+
+# editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+.env

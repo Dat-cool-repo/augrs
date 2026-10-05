@@ -1,0 +1,173 @@
+{
+  "n_images": 300,
+  "threads": 4,
+  "batch": 32,
+  "cpu_count": 20,
+  "platform": "Linux-5.15.153.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "albumentations": "2.0.8",
+  "opencv": "5.0.0",
+  "augrs": "0.1.0",
+  "rows": [
+    {
+      "pipeline": "detection",
+      "config": "albumentations, 1 thread (cv2 threads=1)",
+      "images_per_s": 230.45913382258476,
+      "all_runs": [
+        258.8560402280606,
+        230.45913382258476,
+        221.49863605642454
+      ]
+    },
+    {
+      "pipeline": "detection",
+      "config": "albumentations, 4 Python threads",
+      "images_per_s": 250.55909673325993,
+      "all_runs": [
+        270.7256320027863,
+        250.55909673325993,
+        227.41948468422464
+      ]
+    },
+    {
+      "pipeline": "detection",
+      "config": "albumentations, 4 processes (fork pool)",
+      "images_per_s": 756.8873742426952,
+      "all_runs": [
+        796.1501828830735,
+        756.8873742426952,
+        685.2731358467178
+      ]
+    },
+    {
+      "pipeline": "detection",
+      "config": "augrs, 1 thread (per-image calls)",
+      "images_per_s": 417.20960354311154,
+      "all_runs": [
+        417.20960354311154,
+        396.7908361336616,
+        417.57825798292646
+      ]
+    },
+    {
+      "pipeline": "detection",
+      "config": "augrs, 4 Python threads (per-image calls)",
+      "images_per_s": 1504.1209454433035,
+      "all_runs": [
+        1612.7153097905732,
+        1504.1209454433035,
+        1463.0466814740214
+      ]
+    },
+    {
+      "pipeline": "detection",
+      "config": "augrs, augment_batch num_threads=1",
+      "images_per_s": 461.3675099703163,
+      "all_runs": [
+        474.1440658864034,
+        456.68132473164917,
+        461.3675099703163
+      ]
+    },
+    {
+      "pipeline": "detection",
+      "config": "augrs, augment_batch num_threads=2",
+      "images_per_s": 832.6279494371939,
+      "all_runs": [
+        870.8009849515421,
+        832.6279494371939,
+        798.9798242095891
+      ]
+    },
+    {
+      "pipeline": "detection",
+      "config": "augrs, augment_batch num_threads=4",
+      "images_per_s": 1393.0506599822993,
+      "all_runs": [
+        1492.6346465783038,
+        1331.6586453396194,
+        1393.0506599822993
+      ]
+    },
+    {
+      "pipeline": "segmentation",
+      "config": "albumentations, 1 thread (cv2 threads=1)",
+      "images_per_s": 220.52041278183904,
+      "all_runs": [
+        302.67835567026293,
+        220.52041278183904,
+        212.52035279966927
+      ]
+    },
+    {
+      "pipeline": "segmentation",
+      "config": "albumentations, 4 Python threads",
+      "images_per_s": 668.7108861251451,
+      "all_runs": [
+        734.9629501869805,
+        571.1643758107482,
+        668.7108861251451
+      ]
+    },
+    {
+      "pipeline": "segmentation",
+      "config": "albumentations, 4 processes (fork pool)",
+      "images_per_s": 794.428818985896,
+      "all_runs": [
+        890.7291696629597,
+        704.9006502450627,
+        794.428818985896
+      ]
+    },
+    {
+      "pipeline": "segmentation",
+      "config": "augrs, 1 thread (per-image calls)",
+      "images_per_s": 388.9430668574509,
+      "all_runs": [
+        388.9430668574509,
+        373.60828671548995,
+        395.50436464046163
+      ]
+    },
+    {
+      "pipeline": "segmentation",
+      "config": "augrs, 4 Python threads (per-image calls)",
+      "images_per_s": 1309.6671702653632,
+      "all_runs": [
+        1292.5190124057094,
+        1309.6671702653632,
+        1325.3638556735311
+      ]
+    },
+    {
+      "pipeline": "segmentation",
+      "config": "augrs, augment_batch num_threads=1",
+      "images_per_s": 406.6691060216391,
+      "all_runs": [
+        406.6691060216391,
+        396.4308856929436,
+        409.2568106403835
+      ]
+    },
+    {
+      "pipeline": "segmentation",
+      "config": "augrs, augment_batch num_threads=2",
+      "images_per_s": 766.7371767545746,
+      "all_runs": [
+        766.7371767545746,
+        758.3261691943097,
+        767.3605050828198
+      ]
+    },
+    {
+      "pipeline": "segmentation",
+      "config": "augrs, augment_batch num_threads=4",
+      "images_per_s": 1347.894396876965,
+      "all_runs": [
+        1381.8652389359438,
+        1347.894396876965,
+        1253.8823017294797
+      ]
+    }
+  ],
+  "runs": 3
+}

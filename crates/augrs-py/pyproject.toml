@@ -1,0 +1,35 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "augrs"
+description = "Fast, GIL-free image augmentation with a Rust core and an Albumentations-like API (MIT/Apache-2.0)"
+requires-python = ">=3.9"
+license = { text = "MIT OR Apache-2.0" }
+authors = [{ name = "Dat-cool-repo contributors" }]
+keywords = ["augmentation", "image", "computer-vision", "albumentations", "deep-learning"]
+dependencies = ["numpy>=1.21"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/Dat-cool-repo/augrs"
+Repository = "https://github.com/Dat-cool-repo/augrs"
+Issues = "https://github.com/Dat-cool-repo/augrs/issues"
+
+[project.optional-dependencies]
+yaml = ["pyyaml>=5"]
+test = ["pytest", "pyyaml", "albumentations==2.0.8", "opencv-python-headless"]
+
+[tool.maturin]
+module-name = "augrs._augrs"
+python-source = "python"
+bindings = "pyo3"
+exclude = ["python/augrs/__pycache__/**"]
