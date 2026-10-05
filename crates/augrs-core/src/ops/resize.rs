@@ -225,13 +225,13 @@ fn resize_linear_rgb(a: &Array3<u8>, rect: Rect, dh: usize, dw: usize) -> Array3
     let simd = super::simd::avx2_available();
     // planar row buffers: [R | G | B], each `dw` long
     let hres = |sy: usize, buf: &mut [i32]| {
-        let row_off = (sy * w * c) as i32;
         let (br, rest) = buf.split_at_mut(dw);
         let (bg, bb) = rest.split_at_mut(dw);
         #[allow(unused_mut)]
         let mut dx = 0;
         #[cfg(target_arch = "x86_64")]
         if simd {
+            let row_off = (sy * w * c) as i32;
             let (mut o0, mut o1) = ([0i32; 8], [0i32; 8]);
             while dx + 8 <= dw {
                 for k in 0..8 {
