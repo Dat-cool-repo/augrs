@@ -93,10 +93,14 @@ def size(height: Any, width: Any, size_: Any, name: str) -> tuple[int, int]:
         size_ = height
     if size_ is not None:
         h, w = size_
-        return int(h), int(w)
-    if height is None or width is None:
+    elif height is None or width is None:
         raise TypeError(f"{name} needs height and width (or size=(h, w))")
-    return int(height), int(width)
+    else:
+        h, w = height, width
+    h, w = int(h), int(w)
+    if h <= 0 or w <= 0:
+        raise ValueError(f"{name}: height and width must be positive, got {h}x{w}")
+    return h, w
 
 
 def jsonable(v: Any) -> Any:

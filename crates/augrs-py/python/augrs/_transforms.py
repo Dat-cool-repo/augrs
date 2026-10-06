@@ -6,10 +6,12 @@ from __future__ import annotations
 
 import functools
 import inspect
+import json
 import numbers
 from typing import Any, Sequence
 
 from . import _util as U
+from ._augrs import _validate_transform
 
 __all__ = [
     "BasicTransform",
@@ -72,13 +74,19 @@ class BasicTransform:
 
         @functools.wraps(init)
         def wrapped(self, *args: Any, **kw: Any) -> None:
-            if "_init_args" not in self.__dict__:
+            outer = "_init_args" not in self.__dict__
+            if outer:
                 bound = sig.bind(self, *args, **kw)
                 bound.apply_defaults()
                 rec = dict(bound.arguments)
                 rec.pop("self", None)
                 self.__dict__["_init_args"] = rec
-            init(self, *args, **kw)
+            try:
+                init(self, *args, **kw)
+            except OverflowError as e:  # e.g. int(float("inf")): report as an invalid value
+                raise ValueError(f"{cls.__name__}: {e}") from None
+            if outer:
+                self._check()
 
         wrapped._augrs_wrapped = True  # type: ignore[attr-defined]
         cls.__init__ = wrapped  # type: ignore[method-assign]
@@ -91,6 +99,20 @@ class BasicTransform:
     # -- internal Rust spec ------------------------------------------------
     def _params(self) -> dict:
         return {}
+
+    def _check(self) -> None:
+        """Validate the parameters in the Rust core, so that invalid values raise here (at
+        construction) with a ``ValueError`` naming the transform, not later in ``Compose``."""
+        name = type(self).__name__
+        try:
+            spec = json.dumps(self._spec(), allow_nan=False)
+        except ValueError:
+            raise ValueError(f"{name}: parameters must be finite numbers (got NaN or infinity)") from None
+        try:
+            _validate_transform(spec)
+        except ValueError as e:
+            msg = str(e)
+            raise ValueError(msg if name in msg else f"{name}: {msg}") from None
 
     def _spec(self) -> dict:
         d = {"type": self._type or type(self).__name__, "p": self.p}
@@ -142,6 +164,9 @@ class BaseCompose(BasicTransform):
         if isinstance(transforms, BasicTransform):
             transforms = [transforms]
         self.transforms = list(transforms)
+        for t in self.transforms:
+            if not isinstance(t, BasicTransform):
+                raise TypeError(f"{type(self).__name__}: expected augrs transforms, got {type(t).__name__}")
 
     def _params(self):
         return {"transforms": [t._spec() for t in self.transforms]}

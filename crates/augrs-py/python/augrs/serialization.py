@@ -35,15 +35,22 @@ def to_dict(transform: BasicTransform) -> dict:
     return {"__version__": __version__, "transform": transform.to_dict_private()}
 
 
+# Albumentations configs nest a few levels; this bounds the recursion for malformed input.
+_MAX_DEPTH = 64
+
+
 def _class_name(d: dict) -> str:
-    try:
-        full = d["__class_fullname__"]
-    except KeyError:
-        raise ValueError(f"not a serialised transform (no __class_fullname__): {d!r}") from None
+    if not isinstance(d, dict):
+        raise TypeError(f"a serialised transform must be a dict, got {type(d).__name__}")
+    full = d.get("__class_fullname__")
+    if not isinstance(full, str):
+        raise ValueError(f"not a serialised transform (no __class_fullname__ string): {d!r:.200}")
     return full.rsplit(".", 1)[-1]
 
 
-def _build(d: dict, seed: int | None = None, top: bool = False) -> BasicTransform:
+def _build(d: dict, seed: int | None = None, top: bool = False, depth: int = 0) -> BasicTransform:
+    if depth > _MAX_DEPTH:
+        raise ValueError(f"config nested more than {_MAX_DEPTH} levels deep")
     name = _class_name(d)
     args = {k: v for k, v in d.items() if k not in _IGNORED_KEYS}
     if name == "ReplayCompose":
@@ -61,7 +68,10 @@ def _build(d: dict, seed: int | None = None, top: bool = False) -> BasicTransfor
     if cls is None:
         raise NotImplementedError(f"augrs does not implement the {name} transform")
     if "transforms" in args:
-        args["transforms"] = [_build(t) for t in args["transforms"]]
+        ts = args["transforms"]
+        if not isinstance(ts, (list, tuple)):
+            raise TypeError(f"{name}.transforms must be a list, got {type(ts).__name__}")
+        args["transforms"] = [_build(t, depth=depth + 1) for t in ts]
     if name in ("Compose", "OneOf", "SomeOf", "Sequential"):
         return _make(cls, args, name)
     return _make(cls, args, name)
@@ -84,7 +94,7 @@ def from_dict(d: dict, seed: int | None = None) -> BasicTransform:
 
     ``seed`` seeds the top-level ``Compose``.
     """
-    if "transform" in d:
+    if isinstance(d, dict) and "transform" in d:
         d = d["transform"]
     return _build(d, seed=seed, top=True)
 

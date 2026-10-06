@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
+import os
+import sys
 from typing import Any, Sequence
 
 import numpy as np
@@ -40,6 +43,15 @@ class BboxParams:
         self.clip = bool(clip)
         self.filter_invalid_bboxes = bool(filter_invalid_bboxes)
         self.max_accept_ratio = None if max_accept_ratio is None else float(max_accept_ratio)
+        if not 0.0 <= self.min_visibility <= 1.0:
+            raise ValueError(f"BboxParams: min_visibility must be in [0, 1], got {min_visibility}")
+        for k in ("min_area", "min_width", "min_height"):
+            v = getattr(self, k)
+            if not (math.isfinite(v) and v >= 0):
+                raise ValueError(f"BboxParams: {k} must be finite and >= 0, got {v}")
+        if self.max_accept_ratio is not None and not (math.isfinite(self.max_accept_ratio)
+                                                      and self.max_accept_ratio > 0):
+            raise ValueError(f"BboxParams: max_accept_ratio must be finite and > 0 (or None), got {max_accept_ratio}")
 
     def _spec(self) -> dict:
         return {"format": self.format, "min_area": self.min_area, "min_visibility": self.min_visibility,
@@ -208,6 +220,10 @@ class Compose(BaseCompose):
             bbox_params = BboxParams(**bbox_params)
         if isinstance(keypoint_params, dict):
             keypoint_params = KeypointParams(**keypoint_params)
+        if bbox_params is not None and not isinstance(bbox_params, BboxParams):
+            raise TypeError(f"bbox_params must be a BboxParams or a dict, got {type(bbox_params).__name__}")
+        if keypoint_params is not None and not isinstance(keypoint_params, KeypointParams):
+            raise TypeError(f"keypoint_params must be a KeypointParams or a dict, got {type(keypoint_params).__name__}")
         self.bbox_params = bbox_params
         self.keypoint_params = keypoint_params
         self.additional_targets = dict(additional_targets or {})
@@ -222,6 +238,9 @@ class Compose(BaseCompose):
         self._internal_spec: dict | None = None
         self._build(seed)
 
+    def _check(self) -> None:  # _build already validated the whole pipeline
+        pass
+
     def _build(self, seed: int | None) -> None:
         spec = {
             "transforms": [t._spec() for t in self.transforms],
@@ -229,8 +248,36 @@ class Compose(BaseCompose):
             "bbox_params": self.bbox_params._spec() if self.bbox_params else None,
             "keypoint_params": self.keypoint_params._spec() if self.keypoint_params else None,
         }
-        self._pipe = _Pipeline(json.dumps(spec), None if seed is None else int(seed) & (2**64 - 1))
-        self._json = json.dumps(spec)
+        try:
+            self._json = json.dumps(spec, allow_nan=False)
+        except ValueError:
+            raise ValueError("Compose: parameters must be finite numbers (got NaN or infinity)") from None
+        self._seed = None if seed is None else int(seed) & (2**64 - 1)
+        self._pipe = _Pipeline(self._json, self._seed)
+        self._pid = os.getpid()
+
+    def _check_fork(self) -> None:
+        """Give each forked worker process its own random stream.
+
+        A process forked after the pipeline was created (PyTorch ``DataLoader`` workers,
+        ``multiprocessing`` with fork) inherits its random state, so every worker would draw the
+        same sequence of augmentation parameters. On the first call in a new process the stream is
+        re-seeded: from ``(seed, torch worker seed)`` inside a PyTorch worker (reproducible for a
+        seeded ``DataLoader``), from fresh entropy when ``seed`` is None. A seeded pipeline in
+        other kinds of processes keeps its stream; call :meth:`set_seed` there if needed.
+        """
+        self._pid = os.getpid()
+        worker_seed = None
+        tud = sys.modules.get("torch.utils.data")
+        if tud is not None:
+            info = tud.get_worker_info()
+            if info is not None:
+                worker_seed = int(info.seed)
+        if worker_seed is not None:
+            base = 0 if self._seed is None else self._seed
+            self._pipe.set_seed(_mix_seed(base, worker_seed))
+        elif self._seed is None:
+            self._pipe.set_seed(None)
 
     # -- serialisation -------------------------------------------------------
     def _spec(self) -> dict:  # nested use: Compose inside Compose / OneOf
@@ -271,12 +318,28 @@ class Compose(BaseCompose):
         obj.save_applied_params = False
         obj._internal_spec = spec
         obj._json = json.dumps(spec)
-        obj._pipe = _Pipeline(obj._json, seed)
+        obj._seed = None if seed is None else int(seed) & (2**64 - 1)
+        obj._pipe = _Pipeline(obj._json, obj._seed)
+        obj._pid = os.getpid()
         return obj
+
+    # -- pickling (spawned DataLoader workers on Windows / macOS, copy.deepcopy) -----------------
+    def __getstate__(self) -> dict:
+        d = self.__dict__.copy()
+        d.pop("_pipe", None)
+        return d
+
+    def __setstate__(self, d: dict) -> None:
+        # The random stream restarts from the seed; in another process the next call re-seeds it
+        # per worker (``_pid`` is still the original process), see ``_check_fork``.
+        self.__dict__.update(d)
+        self._pipe = _Pipeline(self._json, self._seed)
 
     def set_seed(self, seed: int | None) -> None:
         """Restart the random stream (``None`` = non-deterministic)."""
-        self._pipe.set_seed(None if seed is None else int(seed) & (2**64 - 1))
+        self._seed = None if seed is None else int(seed) & (2**64 - 1)
+        self._pipe.set_seed(self._seed)
+        self._pid = os.getpid()
 
     def __repr__(self) -> str:
         inner = ",\n  ".join(repr(t) for t in self.transforms)
@@ -375,6 +438,8 @@ class Compose(BaseCompose):
         if args:
             raise TypeError("pass data as keyword arguments, e.g. t(image=img, bboxes=boxes)")
         data.pop("force_apply", None)
+        if self._pid != os.getpid():
+            self._check_fork()
         prep = self._prepare(data)
         bb = prep["bboxes"][0] if "bboxes" in prep else None
         kp = prep["keypoints"][0] if "keypoints" in prep else None
@@ -390,6 +455,8 @@ class Compose(BaseCompose):
         derived from ``(seed, i)``, so results are reproducible and independent of ``num_threads``.
         """
         n = len(images)
+        if self._pid != os.getpid():
+            self._check_fork()
         for k, v in per_image.items():
             if v is not None and len(v) != n:
                 raise ValueError(f"{k} has {len(v)} entries but there are {n} images")
@@ -412,6 +479,14 @@ class Compose(BaseCompose):
             [p["extra"] for p in preps],
         )
         return [self._finish(d, p, r) for d, p, r in zip(datas, preps, res)]
+
+
+def _mix_seed(a: int, b: int) -> int:
+    """A 64-bit seed from two integers (splitmix64 finaliser)."""
+    z = (a * 0x9E3779B97F4A7C15 + b + 0x632BE59BD9B4E019) & (2**64 - 1)
+    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & (2**64 - 1)
+    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & (2**64 - 1)
+    return z ^ (z >> 31)
 
 
 def augment_batch(transform: Compose, images: Sequence[Any], **kwargs) -> list[dict]:

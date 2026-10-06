@@ -341,9 +341,20 @@ impl PyPipeline {
     }
 }
 
+/// Validate one transform's spec (JSON, as built by the Python classes). Raises `ValueError`
+/// naming the transform and the offending parameter. Called by every transform constructor, so
+/// invalid parameters fail where the transform is created.
+#[pyfunction]
+fn _validate_transform(spec_json: &str) -> PyResult<()> {
+    let t: augrs_core::Transform = serde_json::from_str(spec_json)
+        .map_err(|e| PyValueError::new_err(format!("invalid transform parameters: {e}")))?;
+    t.validate().map_err(to_pyerr)
+}
+
 #[pymodule]
 fn _augrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPipeline>()?;
+    m.add_function(wrap_pyfunction!(_validate_transform, m)?)?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }
