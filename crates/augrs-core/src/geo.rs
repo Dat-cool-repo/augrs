@@ -391,14 +391,34 @@ pub(crate) fn apply_geo(s: &mut Sample, g: &Geo, remove_invisible_kps: bool) -> 
             }
         }
         PointMap::Proj(hm) => {
-            // boxes: bounding box of the 4 projected corners
+            // boxes: bounding box of the projected box outline. Strong perspectives can put the
+            // homography's horizon (w = 0) through a box: the part behind it is not visible, so
+            // the outline is first clipped to the half-plane in front of it (w >= eps).
             transform_boxes_with(&mut s.bboxes, oh, ow, |b| {
+                let m = &hm.m;
+                let wq = |(x, y): (f64, f64)| m[6] * x + m[7] * y + m[8];
+                let quad = [(b.x0, b.y0), (b.x1, b.y0), (b.x1, b.y1), (b.x0, b.y1)];
+                let scale = quad.iter().map(|&p| wq(p).abs()).fold(0.0, f64::max);
+                let eps = (scale * 1e-6).max(1e-9);
                 let mut r = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
-                for (x, y) in [(b.x0, b.y0), (b.x1, b.y0), (b.x0, b.y1), (b.x1, b.y1)] {
-                    let (px, py) = hm.apply(x, y)?;
-                    r = (r.0.min(px), r.1.min(py), r.2.max(px), r.3.max(py));
+                let mut add = |p: (f64, f64)| {
+                    if let Some((px, py)) = hm.apply(p.0, p.1) {
+                        r = (r.0.min(px), r.1.min(py), r.2.max(px), r.3.max(py));
+                    }
+                };
+                for i in 0..4 {
+                    let (a, c) = (quad[i], quad[(i + 1) % 4]);
+                    let (wa, wc) = (wq(a), wq(c));
+                    if wa >= eps {
+                        add(a);
+                    }
+                    if (wa >= eps) != (wc >= eps) {
+                        // the edge crosses w = eps: add the crossing point
+                        let t = (eps - wa) / (wc - wa);
+                        add((a.0 + t * (c.0 - a.0), a.1 + t * (c.1 - a.1)));
+                    }
                 }
-                Some(r)
+                r.0.is_finite().then_some(r)
             });
             transform_keypoints_with(&mut s.keypoints, oh, ow, remove_invisible_kps, |x, y| {
                 let p = hm.apply(x, y)?;

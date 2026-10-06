@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 00ee4428556a715f2b3f6c74f28f485c5ae284bbb96aed24f34cedd235058930 # shrinks to (h, w, b) = (10, 16, (0, 6, 8, 7)), seed = 4282943731728017703, kind = 4
+cc efdac88431f2fa38c325eb646d25453d6a9ae7668232d6287280576f2278f003 # shrinks to (h, w, b) = (8, 8, (0, 0, 8, 8)), seed = 11585847712991027183, kind = 3

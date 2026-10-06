@@ -2016,12 +2016,17 @@ fn perspective_params(
         return input("Perspective: degenerate quadrilateral");
     };
     if fit_output {
-        let mut r = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+        // The canvas covers the mapped image corners. For strong jitter the homography's horizon
+        // can cross the image, so a corner maps to infinity (or behind it): such corners are
+        // skipped, and the canvas is bounded to 2x the quadrilateral's size on each side (the
+        // jittered quadrilateral itself, `[0, ow] x [0, oh]`, is always in view).
+        let mut r = (0.0f64, 0.0f64, owf, ohf);
         for (x, y) in [(0.0, 0.0), (wf, 0.0), (wf, hf), (0.0, hf)] {
-            let Some((px, py)) = hm.apply(x, y) else {
-                return input("Perspective: image corner maps to infinity");
-            };
-            r = (r.0.min(px), r.1.min(py), r.2.max(px), r.3.max(py));
+            if let Some((px, py)) = hm.apply(x, y) {
+                let px = px.clamp(-2.0 * owf, 3.0 * owf);
+                let py = py.clamp(-2.0 * ohf, 3.0 * ohf);
+                r = (r.0.min(px), r.1.min(py), r.2.max(px), r.3.max(py));
+            }
         }
         hm = hm.then(&Homography::from_affine(&Affine2::translate(-r.0, -r.1)));
         ow = ((r.2 - r.0).round() as usize).max(1);

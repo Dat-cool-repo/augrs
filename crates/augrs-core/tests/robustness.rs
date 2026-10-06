@@ -306,3 +306,26 @@ fn coarse_dropout_holes_larger_than_the_image() {
     let Buf::U8(a) = &o.image else { panic!() };
     assert!(a.iter().all(|&v| v == 0));
 }
+
+#[test]
+fn perspective_fit_output_never_fails_for_valid_parameters() {
+    // strong jitter can put the homography's horizon inside the image: an image corner then
+    // maps to infinity, which used to be an error ("image corner maps to infinity")
+    let mut t = Transform::perspective((0.05, 0.32), 1.0);
+    if let Transform::Perspective {
+        fit_output, keep_size, ..
+    } = &mut t
+    {
+        *fit_output = true;
+        *keep_size = false;
+    }
+    let s = spec(vec![t]).with_bboxes(BboxParams::new(BboxFormat::PascalVoc));
+    let p = Pipeline::new(s, None).unwrap();
+    for seed in 0..3000u64 {
+        let mut inp = Input::image(img(12 + (seed % 9) as usize, 10 + (seed % 7) as usize, 3));
+        inp.bboxes = vec![[1.0, 1.0, 6.0, 7.0]];
+        let o = p.apply_with_seed(inp, seed, false).unwrap();
+        let (h, w, _) = o.image.dims();
+        assert!(h <= 200 && w <= 200, "{h}x{w}");
+    }
+}
