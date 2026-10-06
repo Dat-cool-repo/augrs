@@ -10,10 +10,13 @@ use crate::geometry::Affine2;
 use crate::ops::resize::Interp;
 use ndarray::Array3;
 
-const OFF: f64 = 65536.0;
-const OFF_I: i64 = 65536;
-/// coordinates are clamped to this range before flooring (keeps `x + OFF > 0`)
-const LIM: f64 = 60000.0;
+/// Bias added to source coordinates so they stay positive (floor by truncation). Must exceed
+/// `LIM`, and `(OFF + LIM) * 256` must fit in an `i32` (the AVX2 kernel's 8-bit sub-pixel positions).
+pub(crate) const OFF: f64 = 2_097_152.0;
+pub(crate) const OFF_I: i64 = 2_097_152;
+/// Coordinates are clamped to this range before flooring (keeps `x + OFF > 0`). It is larger
+/// than `MAX_SIDE`, so every in-image position is represented exactly.
+const LIM: f64 = 2_000_000.0;
 const WB: i64 = 8;
 const WS: i64 = 1 << WB;
 
@@ -164,9 +167,14 @@ impl RowFix {
     #[inline(always)]
     fn at(&self, u: usize) -> (i64, i64) {
         let u = u as i64;
+        // saturating: degenerate maps (huge scales) must clamp, not overflow
         (
-            (self.x0 + u * self.dx).clamp(self.lo, self.hi),
-            (self.y0 + u * self.dy).clamp(self.lo, self.hi),
+            self.x0
+                .saturating_add(u.saturating_mul(self.dx))
+                .clamp(self.lo, self.hi),
+            self.y0
+                .saturating_add(u.saturating_mul(self.dy))
+                .clamp(self.lo, self.hi),
         )
     }
 }
@@ -280,7 +288,7 @@ fn warp_bilinear_u8<const C: usize>(src: &[u8], cdyn: usize, a: &WarpArgs, fill:
         if simd {
             for (u, (x, y)) in x32.iter_mut().zip(y32.iter_mut()).enumerate() {
                 let (xf, yf) = rf.at(u);
-                // round to the nearest 1/256 px (fits in i32: |coord| <= 60000 px plus the bias)
+                // round to the nearest 1/256 px (fits in i32: (LIM + OFF) * 256 < 2^31)
                 *x = ((xf + ROUND8) >> (FB as i64 - WB)) as i32;
                 *y = ((yf + ROUND8) >> (FB as i64 - WB)) as i32;
             }

@@ -202,6 +202,7 @@ impl Pipeline {
         if h == 0 || w == 0 || c == 0 {
             return input(format!("image must be non-empty, got shape ({h}, {w}, {c})"));
         }
+        crate::check_size(h, w, c, "the input image")?;
         if !matches!(inp.image, Buf::U8(_) | Buf::F32(_)) {
             return input(format!(
                 "image dtype must be uint8 or float32, got {}",
@@ -209,12 +210,16 @@ impl Pipeline {
             ));
         }
         for (i, m) in inp.extra_images.iter().enumerate() {
-            let (mh, mw, _) = m.dims();
+            let (mh, mw, mc) = m.dims();
             if (mh, mw) != (h, w) {
                 return input(format!(
                     "additional image {i} has shape ({mh}, {mw}) but the image is ({h}, {w})"
                 ));
             }
+            if mc == 0 {
+                return input(format!("additional image {i} has no channels"));
+            }
+            crate::check_size(h, w, mc, "an additional image")?;
             if !matches!(m, Buf::U8(_) | Buf::F32(_)) {
                 return input(format!(
                     "additional image {i} dtype must be uint8 or float32, got {}",
@@ -223,10 +228,14 @@ impl Pipeline {
             }
         }
         for (i, m) in inp.masks.iter().enumerate() {
-            let (mh, mw, _) = m.dims();
+            let (mh, mw, mc) = m.dims();
             if (mh, mw) != (h, w) {
                 return input(format!("mask {i} has shape ({mh}, {mw}) but the image is ({h}, {w})"));
             }
+            if mc == 0 {
+                return input(format!("mask {i} has no channels"));
+            }
+            crate::check_size(h, w, mc, "a mask")?;
         }
         let bboxes = match (&self.spec.bbox_params, inp.bboxes.is_empty()) {
             (_, true) => vec![],
@@ -262,7 +271,7 @@ impl Pipeline {
             None => (vec![], vec![]),
         };
         let (keypoints, keypoint_ids) = match &self.spec.keypoint_params {
-            Some(kp) => keypoints_out(&s.keypoints, kp),
+            Some(kp) => keypoints_out(&s.keypoints, kp, oh, ow),
             None => (vec![], vec![]),
         };
         Ok(Output {

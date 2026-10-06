@@ -78,6 +78,10 @@ fn lin_axis(src_len: usize, dst_len: usize) -> Vec<(usize, usize, f32)> {
         .collect()
 }
 
+/// Source index of every output index: the pixel whose centre is closest (OpenCV
+/// `INTER_NEAREST_EXACT`). Where an output centre falls exactly halfway between two source
+/// centres this takes the upper one; OpenCV resolves such ties either way depending on
+/// floating-point rounding.
 fn nearest_axis(src_len: usize, dst_len: usize) -> Vec<usize> {
     let scale = src_len as f64 / dst_len as f64;
     (0..dst_len)

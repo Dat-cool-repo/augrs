@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/augrs-core", "crates/augrs-py"]
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.1.0"
@@ -16,7 +17,8 @@ ndarray = "0.17"
 fast_image_resize = "6.1"
 rayon = "1.12"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# float_roundtrip: parse floats exactly (Python sends its parameters as JSON)
+serde_json = { version = "1", features = ["float_roundtrip"] }
 
 [profile.release]
 opt-level = 3

@@ -419,7 +419,8 @@ pub enum Transform {
         /// Sample zoom-in and zoom-out equally often (when the range straddles 1).
         #[serde(default)]
         balanced_scale: bool,
-        /// Translation range as a fraction of width (or pixels if `translate_px`).
+        /// Translation range as a fraction of width (or pixels if `translate_px`); the sampled
+        /// shift is truncated to whole pixels, like Albumentations.
         #[serde(default)]
         translate_x: (f64, f64),
         #[serde(default)]
@@ -673,12 +674,47 @@ fn check_fill(name: &str, fill: &[f64]) -> Result<()> {
     if fill.is_empty() {
         return param(format!("{name}.fill must not be empty"));
     }
+    if fill.iter().any(|v| !v.is_finite()) {
+        return param(format!("{name}.fill must be finite, got {fill:?}"));
+    }
     Ok(())
 }
 
-fn check_children(ts: &[Transform]) -> Result<()> {
-    ts.iter().try_for_each(|t| t.validate())
+fn check_fills(name: &str, fill: &[f64], fill_mask: &[f64]) -> Result<()> {
+    check_fill(name, fill)?;
+    check_fill(&format!("{name} (fill_mask)"), fill_mask)
 }
+
+fn check_side(name: &str, field: &str, v: usize) -> Result<()> {
+    if v > crate::MAX_SIDE {
+        return param(format!(
+            "{name}.{field} = {v} exceeds augrs' limit of {} px",
+            crate::MAX_SIDE
+        ));
+    }
+    Ok(())
+}
+
+fn check_hw(name: &str, height: usize, width: usize) -> Result<()> {
+    if height == 0 || width == 0 {
+        return param(format!("{name}: height and width must be > 0, got {height}x{width}"));
+    }
+    check_side(name, "height", height)?;
+    check_side(name, "width", width)
+}
+
+fn check_children(ts: &[Transform], depth: usize) -> Result<()> {
+    ts.iter().try_for_each(|t| t.validate_at(depth + 1))
+}
+
+/// Largest `SomeOf.n` with `replace=True`.
+pub const MAX_SOME_OF_N: usize = 1024;
+/// Largest number of `CoarseDropout` holes.
+pub const MAX_HOLES: usize = 4096;
+/// Largest `CLAHE` tile grid (per axis).
+pub const MAX_CLAHE_TILES: usize = 256;
+/// Largest `GaussianBlur` kernel size.
+pub const MAX_BLUR_KSIZE: usize = 1023;
 
 impl Transform {
     pub fn p(&self) -> f64 {
@@ -755,15 +791,26 @@ impl Transform {
 
     /// Validate parameters (recursively).
     pub fn validate(&self) -> Result<()> {
+        self.validate_at(0)
+    }
+
+    fn validate_at(&self, depth: usize) -> Result<()> {
         use Transform::*;
         let n = self.name();
         let p = self.p();
         if !(0.0..=1.0).contains(&p) {
             return param(format!("{n}.p must be in [0, 1], got {p}"));
         }
+        let is_composition = matches!(self, Compose { .. } | OneOf { .. } | SomeOf { .. } | Sequential { .. });
+        if is_composition && depth > crate::MAX_NESTING {
+            return param(format!(
+                "compositions are nested more than {} levels deep",
+                crate::MAX_NESTING
+            ));
+        }
         match self {
             Compose { transforms, .. } | OneOf { transforms, .. } | Sequential { transforms, .. } => {
-                check_children(transforms)?
+                check_children(transforms, depth)?
             }
             SomeOf {
                 transforms,
@@ -771,31 +818,36 @@ impl Transform {
                 replace,
                 ..
             } => {
-                check_children(transforms)?;
+                check_children(transforms, depth)?;
                 if !*replace && *k > transforms.len() {
                     return param(format!(
                         "{n}: n = {k} > {} transforms (use replace=True)",
                         transforms.len()
                     ));
                 }
+                if *k > MAX_SOME_OF_N {
+                    return param(format!("{n}: n = {k} exceeds the limit of {MAX_SOME_OF_N}"));
+                }
             }
             HorizontalFlip { .. } | VerticalFlip { .. } | Transpose { .. } | RandomRotate90 { .. } => {}
             RandomCrop {
-                height, width, fill, ..
+                height,
+                width,
+                fill,
+                fill_mask,
+                ..
             }
             | CenterCrop {
-                height, width, fill, ..
+                height,
+                width,
+                fill,
+                fill_mask,
+                ..
             } => {
-                if *height == 0 || *width == 0 {
-                    return param(format!("{n}: height and width must be > 0"));
-                }
-                check_fill(n, fill)?;
+                check_hw(n, *height, *width)?;
+                check_fills(n, fill, fill_mask)?;
             }
-            Resize { height, width, .. } => {
-                if *height == 0 || *width == 0 {
-                    return param(format!("{n}: height and width must be > 0"));
-                }
-            }
+            Resize { height, width, .. } => check_hw(n, *height, *width)?,
             RandomResizedCrop {
                 height,
                 width,
@@ -803,9 +855,7 @@ impl Transform {
                 ratio,
                 ..
             } => {
-                if *height == 0 || *width == 0 {
-                    return param(format!("{n}: height and width must be > 0"));
-                }
+                check_hw(n, *height, *width)?;
                 check_range(n, "scale", *scale)?;
                 check_range(n, "ratio", *ratio)?;
                 if scale.0 <= 0.0 || ratio.0 <= 0.0 {
@@ -816,27 +866,38 @@ impl Transform {
                 if max_size.is_empty() || max_size.contains(&0) {
                     return param(format!("{n}.max_size must be non-empty and > 0"));
                 }
+                for &m in max_size {
+                    check_side(n, "max_size", m)?;
+                }
             }
             PadIfNeeded {
+                min_height,
+                min_width,
                 fill,
+                fill_mask,
                 pad_height_divisor,
                 pad_width_divisor,
                 ..
             } => {
-                check_fill(n, fill)?;
+                check_fills(n, fill, fill_mask)?;
                 if *pad_height_divisor == Some(0) || *pad_width_divisor == Some(0) {
                     return param(format!("{n}: divisors must be > 0"));
                 }
+                check_side(n, "min_height", *min_height)?;
+                check_side(n, "min_width", *min_width)?;
+                check_side(n, "pad_height_divisor", pad_height_divisor.unwrap_or(1))?;
+                check_side(n, "pad_width_divisor", pad_width_divisor.unwrap_or(1))?;
             }
             Rotate {
                 limit,
                 fill,
+                fill_mask,
                 fit_output,
                 crop_border,
                 ..
             } => {
                 check_range(n, "limit", *limit)?;
-                check_fill(n, fill)?;
+                check_fills(n, fill, fill_mask)?;
                 if *fit_output && *crop_border {
                     return param(format!("{n}: fit_output and crop_border are mutually exclusive"));
                 }
@@ -850,6 +911,7 @@ impl Transform {
                 shear_x,
                 shear_y,
                 fill,
+                fill_mask,
                 ..
             } => {
                 for (f, r) in [
@@ -869,7 +931,7 @@ impl Transform {
                 if shear_x.0.abs().max(shear_x.1.abs()) >= 90.0 || shear_y.0.abs().max(shear_y.1.abs()) >= 90.0 {
                     return param(format!("{n}: |shear| must be < 90 degrees"));
                 }
-                check_fill(n, fill)?;
+                check_fills(n, fill, fill_mask)?;
             }
             ShiftScaleRotate {
                 shift_limit_x,
@@ -877,6 +939,7 @@ impl Transform {
                 scale_limit,
                 rotate_limit,
                 fill,
+                fill_mask,
                 ..
             } => {
                 check_range(n, "shift_limit_x", *shift_limit_x)?;
@@ -886,20 +949,30 @@ impl Transform {
                 if scale_limit.0 <= 0.0 {
                     return param(format!("{n}: scale must stay > 0 (scale_limit lower bound > -1)"));
                 }
-                check_fill(n, fill)?;
+                check_fills(n, fill, fill_mask)?;
             }
-            Perspective { scale, fill, .. } => {
+            Perspective {
+                scale, fill, fill_mask, ..
+            } => {
                 check_range(n, "scale", *scale)?;
                 if scale.0 < 0.0 {
                     return param(format!("{n}.scale must be >= 0"));
                 }
-                check_fill(n, fill)?;
+                check_fills(n, fill, fill_mask)?;
             }
-            ElasticTransform { alpha, sigma, fill, .. } => {
+            ElasticTransform {
+                alpha,
+                sigma,
+                fill,
+                fill_mask,
+                ..
+            } => {
                 if !alpha.is_finite() || !(sigma.is_finite() && *sigma > 0.0) {
-                    return param(format!("{n}: alpha must be finite and sigma > 0"));
+                    return param(format!(
+                        "{n}: alpha must be finite and sigma finite and > 0 (got alpha={alpha}, sigma={sigma})"
+                    ));
                 }
-                check_fill(n, fill)?;
+                check_fills(n, fill, fill_mask)?;
             }
             ColorJitter {
                 brightness,
@@ -956,6 +1029,9 @@ impl Transform {
                 if clip_limit.0 < 0.0 || tile_grid_size.0 == 0 || tile_grid_size.1 == 0 {
                     return param(format!("{n}: clip_limit must be >= 0 and the tile grid non-empty"));
                 }
+                if tile_grid_size.0 > MAX_CLAHE_TILES || tile_grid_size.1 > MAX_CLAHE_TILES {
+                    return param(format!("{n}.tile_grid_size: at most {MAX_CLAHE_TILES} tiles per axis"));
+                }
             }
             GaussNoise {
                 std_range,
@@ -981,10 +1057,20 @@ impl Transform {
                 hole_height_range,
                 hole_width_range,
                 fill,
+                fill_mask,
                 ..
             } => {
                 if num_holes_range.0 > num_holes_range.1 {
                     return param(format!("{n}.num_holes_range: lo > hi"));
+                }
+                if num_holes_range.1 > MAX_HOLES {
+                    return param(format!("{n}.num_holes_range: at most {MAX_HOLES} holes"));
+                }
+                if let DropoutFill::Value(v) = fill {
+                    check_fill(n, v)?;
+                }
+                if let Some(v) = fill_mask {
+                    check_fill(&format!("{n} (fill_mask)"), v)?;
                 }
                 check_range(n, "hole_height_range", *hole_height_range)?;
                 check_range(n, "hole_width_range", *hole_width_range)?;
@@ -1011,6 +1097,9 @@ impl Transform {
                 if std.contains(&0.0) || *max_pixel_value == 0.0 {
                     return param(format!("{n}: std and max_pixel_value must be non-zero"));
                 }
+                if mean.iter().chain(std).any(|v| !v.is_finite()) || !max_pixel_value.is_finite() {
+                    return param(format!("{n}: mean, std and max_pixel_value must be finite"));
+                }
             }
             GaussianBlur {
                 blur_limit,
@@ -1023,6 +1112,15 @@ impl Transform {
                 check_range(n, "sigma_limit", *sigma_limit)?;
                 if sigma_limit.0 < 0.0 || (blur_limit.1 == 0 && sigma_limit.1 <= 0.0) {
                     return param(format!("{n}: need sigma > 0 when blur_limit is (0, 0)"));
+                }
+                if blur_limit.1 > MAX_BLUR_KSIZE {
+                    return param(format!("{n}.blur_limit: kernel sizes up to {MAX_BLUR_KSIZE}"));
+                }
+                if blur_limit.1 == 0 && (sigma_limit.1 * 3.5) as usize * 2 + 1 > MAX_BLUR_KSIZE {
+                    return param(format!(
+                        "{n}.sigma_limit: the kernel size derived from sigma (blur_limit=0) must stay <= {MAX_BLUR_KSIZE} (sigma <= {})",
+                        MAX_BLUR_KSIZE / 7
+                    ));
                 }
             }
         }
@@ -1226,8 +1324,9 @@ impl Transform {
                     max_size[rng.int_inclusive(0, max_size.len() as i64 - 1) as usize]
                 };
                 let sc = target as f64 / side as f64;
-                let oh = ((hf * sc).round() as usize).max(1);
-                let ow = ((wf * sc).round() as usize).max(1);
+                // Python's round() (ties to even), like Albumentations
+                let oh = ((hf * sc).round_ties_even() as usize).max(1);
+                let ow = ((wf * sc).round_ties_even() as usize).max(1);
                 s.record(n, json!({"height": oh, "width": ow}));
                 let g = Geo::CropResize {
                     rect: Rect::full(h, w),
@@ -1345,20 +1444,29 @@ impl Transform {
                 };
                 let sx = sample_scale(rng, *scale_x);
                 let sy = if *keep_ratio { sx } else { sample_scale(rng, *scale_y) };
-                let mut tx = rng.uniform(translate_x.0, translate_x.1);
-                let mut ty = rng.uniform(translate_y.0, translate_y.1);
-                if !*translate_px {
-                    tx *= wf;
-                    ty *= hf;
-                }
+                // Albumentations 2.0.8: whole-pixel translations, `randint` over the truncated
+                // pixel bounds, or `int(fraction * size)` (truncation toward zero)
+                let (tx, ty) = if *translate_px {
+                    (
+                        rng.int_inclusive(translate_x.0 as i64, translate_x.1 as i64) as f64,
+                        rng.int_inclusive(translate_y.0 as i64, translate_y.1 as i64) as f64,
+                    )
+                } else {
+                    (
+                        (rng.uniform(translate_x.0, translate_x.1) * wf).trunc(),
+                        (rng.uniform(translate_y.0, translate_y.1) * hf).trunc(),
+                    )
+                };
                 let rot = rng.uniform(rotate.0, rotate.1);
                 let shx = rng.uniform(shear_x.0, shear_x.1);
                 let shy = rng.uniform(shear_y.0, shear_y.1);
                 let (cx, cy) = (wf / 2.0, hf / 2.0);
+                // same composition as Albumentations: scale, rotate, then shear (whose angles
+                // Albumentations negates), about the image centre
                 let mut m = Affine2::translate(-cx, -cy)
                     .then(&Affine2::scale(sx, sy))
-                    .then(&Affine2::shear_deg(shx, shy))
                     .then(&Affine2::rotate_deg(rot))
+                    .then(&Affine2::shear_deg(-shx, -shy))
                     .then(&Affine2::translate(cx + tx, cy + ty));
                 let (mut oh, mut ow) = (h, w);
                 if *fit_output {
@@ -1396,8 +1504,9 @@ impl Transform {
             } => {
                 let angle = rng.uniform(rotate_limit.0, rotate_limit.1);
                 let sc = rng.uniform(scale_limit.0, scale_limit.1);
-                let dx = rng.uniform(shift_limit_x.0, shift_limit_x.1) * wf;
-                let dy = rng.uniform(shift_limit_y.0, shift_limit_y.1) * hf;
+                // whole pixels, like Albumentations (`int(shift * size)`)
+                let dx = (rng.uniform(shift_limit_x.0, shift_limit_x.1) * wf).trunc();
+                let dy = (rng.uniform(shift_limit_y.0, shift_limit_y.1) * hf).trunc();
                 let (cx, cy) = (wf / 2.0, hf / 2.0);
                 let m = Affine2::translate(-cx, -cy)
                     .then(&Affine2::scale(sc, sc))
@@ -1664,6 +1773,7 @@ impl Transform {
                     if c < 3 && *method == GrayMethod::WeightedAverage && c != 1 {
                         return input(format!("{n}: weighted_average needs 3 channels, got {c}"));
                     }
+                    crate::check_size(h, w, *num_output_channels, n)?;
                     *img = match &*img {
                         Buf::U8(a) => Buf::U8(color::to_gray_u8(a, *method, *num_output_channels)),
                         Buf::F32(a) => Buf::F32(color::to_gray_f32(a, *method, *num_output_channels)),
@@ -1745,6 +1855,15 @@ impl Transform {
                     lo + 2 * rng.int_inclusive(0, ((hi - lo) / 2) as i64) as usize
                 };
                 let sigma = rng.uniform(sigma_limit.0, sigma_limit.1);
+                // A kernel wider than twice the image only sees reflected copies of it: cap
+                // the size there (it would otherwise allocate for absurd blur_limit / sigma).
+                let kmax = 2 * h.max(w) + 1;
+                let derived = (sigma.clamp(0.0, 1e9) * 3.5) as usize * 2 + 1;
+                let ksize = if ksize == 0 && derived > kmax {
+                    kmax
+                } else {
+                    ksize.min(kmax)
+                };
                 let kernel = gaussian_kernel_1d(sigma, ksize);
                 s.record(n, json!({"ksize": kernel.len(), "sigma": sigma}));
                 s.for_each_image(|img| {
@@ -2000,7 +2119,8 @@ fn elastic_field(
             fields.iter_mut().flatten().for_each(|v| *v /= m);
         }
     }
-    let scale = (alpha / f) as f32;
+    // displacements beyond 1e9 px all sample outside the image; the clamp keeps f32 math finite
+    let scale = (alpha / f).clamp(-1e9, 1e9) as f32;
     let fields: Vec<Vec<f32>> = fields
         .into_iter()
         .map(|v| {

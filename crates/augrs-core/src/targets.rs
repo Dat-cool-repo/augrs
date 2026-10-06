@@ -263,7 +263,16 @@ pub(crate) fn keypoints_in(raw: &[[f64; 4]], p: &KeypointParams) -> Result<Vec<K
         .map(|(id, r)| {
             let (x, y, a, s) = p.format.parse(*r);
             if !x.is_finite() || !y.is_finite() {
-                return input(format!("keypoint {id} has non-finite coordinates"));
+                return input(format!(
+                    "keypoint {id} has non-finite coordinates: {:?}",
+                    &r[..p.format.ncols()]
+                ));
+            }
+            if !a.is_finite() || !s.is_finite() {
+                return input(format!(
+                    "keypoint {id} has a non-finite angle or scale: {:?}",
+                    &r[..p.format.ncols()]
+                ));
             }
             let a = if p.angle_in_degrees { a.to_radians() } else { a };
             Ok(Keypoint {
@@ -277,11 +286,18 @@ pub(crate) fn keypoints_in(raw: &[[f64; 4]], p: &KeypointParams) -> Result<Vec<K
         .collect()
 }
 
-pub(crate) fn keypoints_out(kps: &[Keypoint], p: &KeypointParams) -> (Vec<[f64; 4]>, Vec<usize>) {
+/// Convert keypoints to the user's format. With `remove_invisible`, keypoints outside the
+/// `h x w` output are dropped here too (this also catches keypoints that were outside the image
+/// on input and were never moved by a geometric transform).
+pub(crate) fn keypoints_out(kps: &[Keypoint], p: &KeypointParams, h: usize, w: usize) -> (Vec<[f64; 4]>, Vec<usize>) {
     let off = if p.pixel_index_coords { 0.5 } else { 0.0 };
     let mut out = Vec::with_capacity(kps.len());
     let mut ids = Vec::with_capacity(kps.len());
+    let (wf, hf) = (w as f64, h as f64);
     for k in kps {
+        if p.remove_invisible && !(k.x >= 0.0 && k.x < wf && k.y >= 0.0 && k.y < hf) {
+            continue;
+        }
         let a = if p.angle_in_degrees {
             k.angle.to_degrees()
         } else {
@@ -399,8 +415,18 @@ pub(crate) fn validate_bbox_params(p: &BboxParams) -> Result<()> {
     if !(0.0..=1.0).contains(&p.min_visibility) {
         return param("BboxParams.min_visibility must be in [0, 1]");
     }
-    if p.min_area < 0.0 || p.min_width < 0.0 || p.min_height < 0.0 {
-        return param("BboxParams.min_area/min_width/min_height must be >= 0");
+    if [p.min_area, p.min_width, p.min_height]
+        .iter()
+        .any(|v| !(v.is_finite() && *v >= 0.0))
+    {
+        return param("BboxParams.min_area/min_width/min_height must be finite and >= 0");
+    }
+    if let Some(r) = p.max_accept_ratio {
+        if !r.is_finite() || r <= 0.0 {
+            return param(format!(
+                "BboxParams.max_accept_ratio must be finite and > 0 (None for no limit), got {r}"
+            ));
+        }
     }
     Ok(())
 }

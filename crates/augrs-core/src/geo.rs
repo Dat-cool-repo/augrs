@@ -75,11 +75,17 @@ impl DispField {
         if res < 0.05 {
             return p;
         }
-        let r = dmax.ceil() as i64 + 1;
-        let (cu, cv) = (qx.floor() as i64, qy.floor() as i64);
+        // search window: the maximum displacement, at most the whole field, visited with a
+        // stride that keeps it to about 64 x 64 candidates (huge displacements stay cheap)
+        let r = (dmax.min(self.h.max(self.w) as f64).ceil() as i64).max(0) + 1;
+        let step = ((2 * r + 1) / 64).max(1) as usize;
+        let (cu, cv) = (
+            qx.clamp(-1.0, self.w as f64).floor() as i64,
+            qy.clamp(-1.0, self.h as f64).floor() as i64,
+        );
         let mut best = (f64::INFINITY, (qx, qy));
-        for v in (cv - r).max(0)..(cv + r + 1).min(self.h as i64) {
-            for u in (cu - r).max(0)..(cu + r + 1).min(self.w as i64) {
+        for v in ((cv - r).max(0)..(cv + r + 1).min(self.h as i64)).step_by(step) {
+            for u in ((cu - r).max(0)..(cu + r + 1).min(self.w as i64)).step_by(step) {
                 let i = v as usize * self.w + u as usize;
                 let (sx, sy) = (u as f64 + 0.5 + self.dx[i] as f64, v as f64 + 0.5 + self.dy[i] as f64);
                 let d = (sx - qx).hypot(sy - qy);
@@ -361,6 +367,13 @@ pub(crate) fn apply_geo(s: &mut Sample, g: &Geo, remove_invisible_kps: bool) -> 
     if oh == 0 || ow == 0 {
         return input(format!("transform would produce an empty {oh}x{ow} image"));
     }
+    let max_c = std::iter::once(&s.image)
+        .chain(&s.extra_images)
+        .chain(&s.masks)
+        .map(|b| b.dims().2)
+        .max()
+        .unwrap_or(1);
+    crate::check_size(oh, ow, max_c, "the transformed image")?;
     s.image = geo_buf(&s.image, g, &pm, oh, ow, false)?;
     for img in s.extra_images.iter_mut() {
         *img = geo_buf(img, g, &pm, oh, ow, false)?;

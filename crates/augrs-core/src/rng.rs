@@ -76,7 +76,16 @@ impl Rng {
     #[inline]
     pub fn uniform(&mut self, lo: f64, hi: f64) -> f64 {
         let u = self.f64();
-        if lo == hi { lo } else { lo + (hi - lo) * u }
+        if lo == hi {
+            return lo;
+        }
+        let span = hi - lo;
+        if span.is_finite() {
+            lo + span * u
+        } else {
+            // hi - lo overflows for ranges wider than f64::MAX; this form cannot overflow
+            lo * (1.0 - u) + hi * u
+        }
     }
 
     /// Uniform integer in the inclusive range `[lo, hi]`.
@@ -87,10 +96,11 @@ impl Rng {
             let _ = self.next_u64();
             return lo;
         }
-        let span = (hi - lo) as u64 + 1;
+        // hi - lo always fits in u64 (it may not fit in i64)
+        let span = hi.wrapping_sub(lo) as u64 as u128 + 1;
         // Lemire's multiply-shift (bias is negligible for our spans)
-        let r = ((self.next_u64() as u128 * span as u128) >> 64) as u64;
-        lo + r as i64
+        let r = ((self.next_u64() as u128 * span) >> 64) as u64;
+        lo.wrapping_add(r as i64)
     }
 
     /// Standard normal sample (Box-Muller; one sample per call).

@@ -282,7 +282,7 @@ pub(crate) mod x86 {
     }
 
     /// Bilinear u8 RGB warp for 8 output pixels whose 8-bit sub-pixel source positions are
-    /// `x8`/`y8` (with the +65536 px bias). Returns false (writing nothing) unless all 4 taps of
+    /// `x8`/`y8` (with the `OFF` bias of `ops::warp`). Returns false (writing nothing) unless all 4 taps of
     /// all 8 pixels are inside the image, so the caller can fall back to the scalar border code.
     #[inline]
     #[target_feature(enable = "avx2,fma")]
@@ -291,7 +291,7 @@ pub(crate) mod x86 {
             let stride = (w * 3) as i32;
             let xv = _mm256_loadu_si256(x8.as_ptr() as *const __m256i);
             let yv = _mm256_loadu_si256(y8.as_ptr() as *const __m256i);
-            let off = _mm256_set1_epi32(65536);
+            let off = _mm256_set1_epi32(crate::ops::warp::OFF_I as i32);
             let x0 = _mm256_sub_epi32(_mm256_srai_epi32(xv, 8), off);
             let y0 = _mm256_sub_epi32(_mm256_srai_epi32(yv, 8), off);
             let m1 = _mm256_set1_epi32(-1);

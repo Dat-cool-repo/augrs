@@ -11,7 +11,8 @@ use crate::buffer::{Element, data, from_vec};
 use crate::ops::resize::Interp;
 use ndarray::Array3;
 
-const LIM: f64 = 60000.0;
+/// Larger than `MAX_SIDE`: every in-image position is represented exactly.
+const LIM: f64 = 2_000_000.0;
 
 #[inline(always)]
 fn sane(x: f64) -> f64 {

@@ -1,0 +1,43 @@
+[package]
+name = "augrs-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = "1"
+augrs-core = { path = "../crates/augrs-core" }
+ndarray = "0.17"
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+# not part of the main workspace (needs nightly + cargo-fuzz)
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "pipeline"
+path = "fuzz_targets/pipeline.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "single_transform"
+path = "fuzz_targets/single_transform.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "from_json"
+path = "fuzz_targets/from_json.rs"
+test = false
+doc = false
+bench = false
