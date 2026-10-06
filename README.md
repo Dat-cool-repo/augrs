@@ -73,15 +73,15 @@ parameters**, since augrs uses its own random number generator: random transform
 | `HorizontalFlip`, `VerticalFlip` | Bit-exact | Image, mask, boxes in all 4 formats, labels, keypoints |
 | `Transpose` | Bit-exact | Same targets as flips |
 | `RandomRotate90` | Bit-exact | Every factor, vs `np.rot90` and Albumentations' box/keypoint functions |
-| `CenterCrop` | Bit-exact | Including `pad_if_needed` |
-| `RandomCrop` | Bit-exact | Same crop/pad path as `CenterCrop`; the window is sampled by augrs |
-| `PadIfNeeded` | Bit-exact | `min_height`/`min_width` and `pad_*_divisor` |
-| `Resize` | Close | Linear: max diff 1 level on < 0.5% of pixels<sup>2</sup>. Nearest: bit-exact (`INTER_NEAREST_EXACT`). Cubic/area/lanczos: antialiased `fast_image_resize` kernels |
-| `RandomResizedCrop` | Close | Crop + `Resize`; window sampling follows torchvision/Albumentations |
-| `LongestMaxSize`, `SmallestMaxSize` | Close | As `Resize`; a list of sizes picks one at random |
+| `CenterCrop` | Bit-exact | Including `pad_if_needed`<sup>3</sup> |
+| `RandomCrop` | Bit-exact | Given the same window (image, mask, boxes in all 4 formats, keypoints), including `pad_if_needed`<sup>3</sup> |
+| `PadIfNeeded` | Bit-exact | `min_height`/`min_width` and `pad_*_divisor`, every position and border mode<sup>3</sup> |
+| `Resize` | Close | Linear: max diff 1 level, on < 1% of pixels<sup>2</sup> (tested sizes of 16 px and up). Nearest: `INTER_NEAREST_EXACT`, identical except where an output pixel centre lies exactly halfway between two input pixels (OpenCV breaks such ties either way). Cubic/area/lanczos: antialiased `fast_image_resize` kernels |
+| `RandomResizedCrop` | Close | Crop + `Resize` given the window; window distribution (area, aspect) tested against Albumentations' sampler |
+| `LongestMaxSize`, `SmallestMaxSize` | Close | As `Resize`, same output size (Python rounding); a list of sizes picks one at random |
 | `Rotate` | Close | vs `cv2.warpAffine` with the same matrix: mean diff < 0.6 (OpenCV quantises to 1/32 px); `crop_border`, `fit_output` |
-| `Affine` | Close | As `Rotate`; `fit_output` canvas within 1 px; `balanced_scale` |
-| `ShiftScaleRotate` | Close | As `Affine` |
+| `Affine` | Close | As `Rotate`, with fixed parameters vs Albumentations (scale, rotate, shear, whole-pixel translation); `fit_output` canvas within 1 px; `balanced_scale` |
+| `ShiftScaleRotate` | Close | As `Affine`, with fixed parameters vs Albumentations |
 | `Perspective` | Differs | Warp matches `cv2.warpPerspective`; no extra zoom with `keep_size=True` |
 | `ElasticTransform` | Differs | Coarse-grid noise for `sigma > 8`; exact keypoint inverse |
 
@@ -101,14 +101,19 @@ parameters**, since augrs uses its own random number generator: random transform
 | `CoarseDropout` | Bit-exact | Given the same holes: image/mask fill, box (`shrink`) and keypoint handling |
 
 <sup>1</sup> Bit-exact against OpenCV builds that fuse multiply-adds (the Linux x86-64 wheels).
-OpenCV's Windows (MSVC) wheels do not, and about 0.01% of values differ by one level there.
+OpenCV's Windows (MSVC) wheels do not, and a few values (< 0.1%, the tested bound) differ by one
+level there.
 
 <sup>2</sup> Against OpenCV's x86-64 builds. OpenCV's arm64 builds (macOS on Apple silicon, Linux
 aarch64) use different kernels for some 8-bit ops, so the reference itself moves: linear resize
 differs by one level on up to ~22% of pixels for some sizes (two levels on some single-channel
-upscales), gray CLAHE on < 0.5% of pixels, and the HSV round trip<sup>1</sup> on about 0.1% of
-values. augrs produces the same output on x86 and arm; the tests allow these differences only on
-arm builds of OpenCV.
+upscales), gray CLAHE on < 0.5% of pixels, and the HSV round trip<sup>1</sup> on < 0.3% of
+values (0.02-0.07% measured on Linux aarch64). augrs produces the same output on x86 and arm; the
+tests allow these differences only on arm builds of OpenCV.
+
+<sup>3</sup> With reflecting border modes (`reflect`, `reflect101`), Albumentations 2.0.8 also adds
+mirrored copies of boxes and keypoints that fall in the padded area; augrs keeps one box per
+object. Images and masks are identical.
 
 ### Compositions
 
@@ -121,19 +126,19 @@ loading a config that uses them raises `NotImplementedError` naming the transfor
 
 ## Install
 
-augrs is not on PyPI yet. Build it from source with [maturin](https://www.maturin.rs). You need a
-Rust toolchain (1.85 or newer, via [rustup](https://rustup.rs)) and Python 3.9 or newer.
+augrs is not on PyPI yet. Build it from source: you need a Rust toolchain (1.85 or newer, via
+[rustup](https://rustup.rs)) and Python 3.9 or newer. pip builds the extension with
+[maturin](https://www.maturin.rs) in release mode (a few minutes the first time).
 
 ```bash
 git clone https://github.com/Dat-cool-repo/augrs
 cd augrs
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install maturin numpy
+pip install .            # or, without cloning: pip install git+https://github.com/Dat-cool-repo/augrs
 
-# install into the active virtualenv (release build)
-cd crates/augrs-py && maturin develop --release
-
-# or build a wheel (abi3: one wheel for every Python >= 3.9) and install it anywhere
+# for development: an editable install, or an abi3 wheel (one wheel for every Python >= 3.9)
+pip install maturin
+maturin develop --release
 maturin build --release --out dist && pip install dist/augrs-*.whl
 ```
 
@@ -331,6 +336,9 @@ bash scripts/profile_ops.sh                   # per-kernel timings
   `i + 0.5`. Pass `KeypointParams(pixel_index_coords=True)` for the pixel-index convention; flips,
   transposes and 90-degree rotations then match Albumentations exactly.
 - **`BboxParams(clip=True)` is the default** (Albumentations: `False`).
+- **Reflect padding does not duplicate targets**: Albumentations 2.0.8 mirrors boxes and keypoints
+  into reflect-padded borders (`PadIfNeeded`, `pad_if_needed`, and warps with reflecting borders);
+  augrs keeps exactly one box / keypoint per input.
 - **Box filtering happens once**, at the end of the pipeline: `min_visibility` is the fraction of
   the *input* box still visible after all transforms. `check_each_transform` is accepted for config
   compatibility.
@@ -366,6 +374,37 @@ bash scripts/profile_ops.sh                   # per-kernel timings
   tested against its scalar version; the whole Rust suite also runs with `AUGRS_FORCE_SCALAR=1`).
 - The RNG is implemented in augrs (no dependency on platform or library RNGs). Outputs for a given
   seed may still change between augrs releases while the project is pre-1.0.
+- **Worker processes.** A process forked after the pipeline was created (PyTorch `DataLoader`
+  workers on Linux) re-seeds the pipeline on its first call: from `(seed, worker seed)` inside a
+  PyTorch worker (reproducible for a seeded `DataLoader`), from fresh entropy when `seed=None`.
+  Without this every worker would replay the same augmentation stream (Albumentations 2.0.8 has
+  that problem). Pipelines pickle, so spawned workers (Windows, macOS) work too; an unpickled
+  pipeline restarts its stream from its seed. A seeded pipeline used in other kinds of forked
+  processes keeps its stream: call `t.set_seed(...)` in each process if needed.
+
+## Input validation and limits
+
+- **Parameters are checked when a transform is created.** Non-finite values (NaN, infinity), `p`
+  outside `[0, 1]`, zero or negative sizes, inverted ranges and values beyond the limits below
+  raise `ValueError` naming the transform (and `NotImplementedError` for Albumentations options
+  augrs does not support), so a bad config fails where it is built, not in a `DataLoader` worker.
+- **Images** must be non-empty `(H, W)` or `(H, W, C)` arrays of uint8 or float32 (`ValueError` /
+  `TypeError` otherwise); masks and additional images must have the image's height and width.
+- **Boxes** with NaN or infinite values, or with `x_max < x_min` / `y_max < y_min`, raise
+  `ValueError`. Boxes partly or fully outside the image are clipped (`clip=True`, the default) or
+  raise (`clip=False`). Boxes that are empty after clipping or after the pipeline (zero area,
+  outside the output) or that fail the `BboxParams` thresholds are dropped together with their
+  labels. An empty box list is fine.
+- **Keypoints** with a non-finite coordinate, angle or scale raise `ValueError`. With
+  `remove_invisible=True` (the default) keypoints outside the output image are dropped, including
+  ones that were already outside on input; with `False` they are kept with their coordinates.
+- **Limits** (far beyond normal use; they bound memory and time for malformed configs): images up
+  to 1,048,576 px per side and 2^31 - 1 elements; `GaussianBlur` kernels up to 1023 (so `sigma`
+  up to 146 when the kernel size is derived from it); `CoarseDropout` up to 4096 holes;
+  `SomeOf(replace=True)` up to `n = 1024`; `CLAHE` up to 256 tiles per axis; compositions nested
+  up to 32 levels. A parameter beyond a limit raises at construction; a transform whose *output*
+  would exceed the size limit for a given image (for example `Affine(fit_output=True)` with a
+  huge scale) raises `ValueError` when it is called.
 
 ## Development
 
@@ -395,13 +434,26 @@ powershell -File scripts\test_wheel_windows.ps1 -Python python -VenvDir $env:TEM
 ```
 
 CI (`.github/workflows/ci.yml`) runs rustfmt, clippy and the Rust tests on Linux, Windows and
-macOS, plus pytest on Python 3.9 and 3.12. `.github/workflows/wheels.yml` builds abi3 wheels for
-Linux (x86_64, aarch64), Windows and macOS (x86_64, arm64) plus an sdist; it does not publish.
+macOS, plus pytest on Python 3.9, 3.12 and 3.13. `.github/workflows/wheels.yml` (manual or on a
+`v*` tag) builds abi3 wheels for Linux (x86_64, aarch64), Windows and macOS (x86_64, arm64) plus
+an sdist, runs the smoke test and the full pytest suite on each build machine, then checks the
+distributions (`twine check`, license files, metadata) and installs the sdist in a fresh venv. It
+does not publish.
+
+**Fuzzing** (nightly Rust and `cargo install cargo-fuzz`; see [`fuzz/`](fuzz)):
+
+```bash
+cargo +nightly fuzz run pipeline -- -jobs=2 -rss_limit_mb=2048 -timeout=10 -max_total_time=1200
+cargo +nightly fuzz run single_transform -- -jobs=2 -rss_limit_mb=2048 -timeout=10 -max_total_time=1200
+cargo +nightly fuzz run from_json -- -dict=fuzz/dict/augrs_json.dict -jobs=2 -max_total_time=1200
+python fuzz/python/fuzz_from_dict.py --loop --seconds 1200   # Albumentations config loader
+```
 
 ## Project layout
 
 ```
 Cargo.toml                    workspace (rustfmt max_width 120)
+pyproject.toml                Python package metadata (maturin build backend)
 crates/augrs-core/            Rust core: ndarray HWC buffers, fast_image_resize, rayon
   src/geometry.rs             Affine2 and Homography in continuous pixel coordinates
   src/geo.rs                  one sampled geometric op -> images, masks, boxes, keypoints
@@ -412,12 +464,15 @@ crates/augrs-core/            Rust core: ndarray HWC buffers, fast_image_resize,
   src/ops/                    kernels: flip/crop/pad, resize, warp, remap, color, hsv, clahe,
                               noise, blur, normalize, simd.rs (AVX2, runtime-detected)
   tests/props.rs              proptest property tests (joint-target consistency)
+  tests/robustness.rs         invalid parameters / targets, degenerate inputs, limits (fuzz regressions)
   examples/profile_ops.rs     per-kernel timings
 crates/augrs-py/              PyO3 (abi3-py39) extension and the `augrs` Python package (maturin)
   python/augrs/               _transforms.py, _compose.py, serialization.py
 compat-tests/                 pytest: parity with Albumentations 2.0.8 / OpenCV, API, serialisation
   fixtures/                   configs exported by Albumentations 2.0.8 (JSON and YAML)
 examples/torch_dataloader.py  augment_batch in a PyTorch collate_fn
+examples/train_parity.py      train the same classifier with augrs and Albumentations (Imagenette)
+fuzz/                         cargo-fuzz targets (random pipelines, JSON specs) and a config-loader fuzzer
 benches/                      benchmark script and results
 scripts/                      build, test, benchmark and wheel scripts
 docs/MOTIVATION.md            background and original scope
