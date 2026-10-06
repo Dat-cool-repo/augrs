@@ -1,0 +1,51 @@
+[build-system]
+requires = ["maturin>=1.9.4,<2"]
+build-backend = "maturin"
+
+[project]
+name = "augrs"
+description = "Fast, GIL-free image augmentation with a Rust core and an Albumentations-like API (MIT/Apache-2.0)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE", "THIRD_PARTY_NOTICES.md"]
+authors = [{ name = "Dat-cool-repo contributors" }]
+keywords = ["augmentation", "image", "computer-vision", "albumentations", "deep-learning"]
+dependencies = ["numpy>=1.21"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/Dat-cool-repo/augrs"
+Repository = "https://github.com/Dat-cool-repo/augrs"
+Issues = "https://github.com/Dat-cool-repo/augrs/issues"
+
+[project.optional-dependencies]
+yaml = ["pyyaml>=5"]
+test = ["pytest", "pyyaml", "albumentations==2.0.8", "opencv-python-headless"]
+
+[tool.maturin]
+manifest-path = "crates/augrs-py/Cargo.toml"
+module-name = "augrs._augrs"
+python-source = "crates/augrs-py/python"
+bindings = "pyo3"
+exclude = ["crates/augrs-py/python/augrs/__pycache__/**"]
