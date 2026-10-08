@@ -3,7 +3,7 @@ requires = ["maturin>=1.9.4,<2"]
 build-backend = "maturin"
 
 [project]
-name = "augrs"
+name = "augrs-py"
 description = "Fast, GIL-free image augmentation with a Rust core and an Albumentations-like API (MIT/Apache-2.0)"
 readme = "README.md"
 requires-python = ">=3.9"

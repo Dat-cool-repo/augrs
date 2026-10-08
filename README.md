@@ -18,7 +18,7 @@ t = A.Compose([A.RandomResizedCrop(size=(512, 512)), A.HorizontalFlip(), A.Color
 out = t(image=img, mask=mask, bboxes=boxes, labels=labels)
 ```
 
-> **Status:** early (0.1.0). Not on PyPI yet; build from source (see [Install](#install)).
+> **Status:** early (0.1.0, alpha). `pip install augrs-py`, then `import augrs` (see [Install](#install)).
 
 ## Why
 
@@ -126,9 +126,16 @@ loading a config that uses them raises `NotImplementedError` naming the transfor
 
 ## Install
 
-augrs is not on PyPI yet. Build it from source: you need a Rust toolchain (1.85 or newer, via
-[rustup](https://rustup.rs)) and Python 3.9 or newer. pip builds the extension with
-[maturin](https://www.maturin.rs) in release mode (a few minutes the first time).
+```bash
+pip install augrs-py      # the import name is `augrs`
+```
+
+The PyPI name is `augrs-py` because `augrs` was already taken by an unrelated package. Prebuilt
+abi3 wheels (CPython 3.9+) cover Linux x86_64 / aarch64, macOS x86_64 / arm64 and Windows x86_64.
+
+To build from source you need a Rust toolchain (1.85 or newer, via [rustup](https://rustup.rs))
+and Python 3.9 or newer. pip builds the extension with [maturin](https://www.maturin.rs) in
+release mode (a few minutes the first time).
 
 ```bash
 git clone https://github.com/Dat-cool-repo/augrs
@@ -139,7 +146,7 @@ pip install .            # or, without cloning: pip install git+https://github.c
 # for development: an editable install, or an abi3 wheel (one wheel for every Python >= 3.9)
 pip install maturin
 maturin develop --release
-maturin build --release --out dist && pip install dist/augrs-*.whl
+maturin build --release --out dist && pip install dist/augrs_py-*.whl
 ```
 
 `pyyaml` is needed only for YAML configs (`pip install pyyaml`). The Rust core is the
@@ -437,8 +444,12 @@ CI (`.github/workflows/ci.yml`) runs rustfmt, clippy and the Rust tests on Linux
 macOS, plus pytest on Python 3.9, 3.12 and 3.13. `.github/workflows/wheels.yml` (manual or on a
 `v*` tag) builds abi3 wheels for Linux (x86_64, aarch64), Windows and macOS (x86_64, arm64) plus
 an sdist, runs the smoke test and the full pytest suite on each build machine, then checks the
-distributions (`twine check`, license files, metadata) and installs the sdist in a fresh venv. It
-does not publish.
+distributions (`twine check`, license files, metadata) and installs the sdist in a fresh venv. On a
+`v*` tag it then publishes everything to PyPI (trusted publishing).
+
+Tested by hand as well: the Windows wheel in a fresh native Python 3.10 venv (412 tests pass), and
+on Apple Silicon (macOS, M5 Pro) both a source build and the CI wheel (412 tests pass, Rust tests
+pass, and a pipeline runs in spawned worker processes).
 
 **Fuzzing** (nightly Rust and `cargo install cargo-fuzz`; see [`fuzz/`](fuzz)):
 
@@ -484,7 +495,7 @@ docs/MOTIVATION.md            background and original scope
   Apple silicon (which currently run the correct, deterministic scalar fallback).
 - More transforms (`MotionBlur`, `Downscale`, `GridDistortion`, `RandomScale`, ...), `max_size_hw`
   and inpainting fills.
-- Wheels on PyPI and the core crate on crates.io.
+- The core crate on crates.io.
 - A Burn integration crate for Rust-native training.
 
 ## License

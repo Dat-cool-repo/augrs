@@ -8,7 +8,7 @@ import zipfile
 
 REQUIRED_FILES = ("LICENSE-MIT", "LICENSE-APACHE", "THIRD_PARTY_NOTICES.md")
 REQUIRED_META = {
-    "Name": "augrs",
+    "Name": "augrs-py",
     "License-Expression": "MIT OR Apache-2.0",
 }
 REQUIRED_CLASSIFIERS = ("Development Status :: 3 - Alpha", "Programming Language :: Rust")
