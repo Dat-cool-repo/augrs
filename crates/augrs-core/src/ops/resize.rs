@@ -347,6 +347,14 @@ fn resize_linear_generic<T: Element>(a: &Array3<T>, rect: Rect, dh: usize, dw: u
 
 fn resize_fir(a: &Array3<u8>, rect: Rect, dh: usize, dw: usize, interp: Interp) -> Option<Array3<u8>> {
     let (h, w, c) = a.dim();
+    // fast_image_resize resizes u8 images vertically first, through a temp image of about
+    // (cropped source width) x (destination height). Neither the input nor the output limit bounds
+    // that intermediate: a 1 x 52463 image resized to 1048576 x 1 would need a 55 GB temp image
+    // (found by fuzzing). Fall back to the single-pass linear kernel when it would exceed the
+    // element limit, instead of aborting on allocation failure.
+    if rect.w().saturating_mul(dh).saturating_mul(c) > crate::MAX_ELEMENTS {
+        return None;
+    }
     let pt = match c {
         1 => fr::PixelType::U8,
         2 => fr::PixelType::U8x2,
@@ -383,6 +391,18 @@ mod tests {
         assert_eq!(resize_u8(&a, r, 7, 9, Interp::Nearest), a);
         let f = a.mapv(|v| v as f32);
         assert_eq!(resize(&f, r, 7, 9, Interp::Linear), f);
+    }
+
+    #[test]
+    fn extreme_aspect_change_avoids_huge_intermediate() {
+        // fuzz case: 1 x 52463 -> 1048576 x 1 made fast_image_resize allocate a 55 GB temp image
+        let a = Array3::from_shape_fn((1, 52463, 1), |(_, x, _)| (x % 251) as u8);
+        let r = Rect::full(1, 52463);
+        for i in [Interp::Cubic, Interp::Area, Interp::Lanczos] {
+            let out = resize_u8(&a, r, 1 << 20, 1, i);
+            assert_eq!(out.dim(), (1 << 20, 1, 1));
+            assert!(out.iter().all(|&v| v <= 250));
+        }
     }
 
     #[test]
