@@ -1116,7 +1116,10 @@ impl Transform {
                 if blur_limit.1 > MAX_BLUR_KSIZE {
                     return param(format!("{n}.blur_limit: kernel sizes up to {MAX_BLUR_KSIZE}"));
                 }
-                if blur_limit.1 == 0 && (sigma_limit.1 * 3.5) as usize * 2 + 1 > MAX_BLUR_KSIZE {
+                // saturating: a huge sigma casts to usize::MAX, and `* 2` would overflow (found by fuzzing)
+                if blur_limit.1 == 0
+                    && ((sigma_limit.1 * 3.5) as usize).saturating_mul(2).saturating_add(1) > MAX_BLUR_KSIZE
+                {
                     return param(format!(
                         "{n}.sigma_limit: the kernel size derived from sigma (blur_limit=0) must stay <= {MAX_BLUR_KSIZE} (sigma <= {})",
                         MAX_BLUR_KSIZE / 7
