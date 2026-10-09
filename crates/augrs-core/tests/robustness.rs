@@ -82,6 +82,9 @@ fn invalid_parameters_are_rejected() {
         (T::perspective((-0.1, 0.1), 1.0), "scale must be >= 0"),
         (T::gaussian_blur((3, 1 << 31), (0.5, 1.0), 1.0), "kernel sizes up to"),
         (T::gaussian_blur((0, 0), (1.0, 1e6), 1.0), "derived from sigma"),
+        // sigma so large that `(sigma * 3.5) as usize` saturates; used to overflow in the check (fuzz crash)
+        (T::gaussian_blur((0, 0), (1.0, 1e300), 1.0), "derived from sigma"),
+        (T::gaussian_blur((0, 0), (1.0, f64::MAX), 1.0), "derived from sigma"),
         (T::coarse_dropout((1, 1 << 40), (0.1, 0.2), 1.0), "holes"),
         (
             T::SomeOf {
