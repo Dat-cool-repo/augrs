@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 authors = ["Dat-cool-repo contributors"]
 repository = "https://github.com/Dat-cool-repo/augrs"
 homepage = "https://github.com/Dat-cool-repo/augrs"
-rust-version = "1.85"
+rust-version = "1.87"
 
 [workspace.dependencies]
 ndarray = "0.17"

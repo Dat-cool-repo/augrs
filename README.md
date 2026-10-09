@@ -133,7 +133,7 @@ pip install augrs-py      # the import name is `augrs`
 The PyPI name is `augrs-py` because `augrs` was already taken by an unrelated package. Prebuilt
 abi3 wheels (CPython 3.9+) cover Linux x86_64 / aarch64, macOS x86_64 / arm64 and Windows x86_64.
 
-To build from source you need a Rust toolchain (1.85 or newer, via [rustup](https://rustup.rs))
+To build from source you need a Rust toolchain (1.87 or newer, via [rustup](https://rustup.rs))
 and Python 3.9 or newer. pip builds the extension with [maturin](https://www.maturin.rs) in
 release mode (a few minutes the first time).
 
