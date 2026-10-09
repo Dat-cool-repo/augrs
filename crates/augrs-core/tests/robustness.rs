@@ -321,6 +321,31 @@ fn hsv_shifts_beyond_the_pixel_range_saturate() {
 }
 
 #[test]
+fn color_jitter_huge_factors_saturate() {
+    // fuzz crash: a saturation factor of 1e9 quantised to i32::MAX and `pixel * fq` overflowed
+    for (b, c, s) in [
+        (1.0, 1.0, 1e9),
+        (1.0, 1.0, f64::MAX),
+        (1e9, 1.0, 1.0),
+        (1.0, f64::MAX, 1.0),
+        (300.0, 300.0, 300.0),
+    ] {
+        let t = Transform::ColorJitter {
+            brightness: (b, b),
+            contrast: (c, c),
+            saturation: (s, s),
+            hue: (0.0, 0.0),
+            p: 1.0,
+        };
+        let p = Pipeline::new(spec(vec![t]), Some(0)).unwrap();
+        for ch in [1, 3, 4] {
+            p.apply(Input::image(img(9, 7, ch)))
+                .unwrap_or_else(|e| panic!("b {b} c {c} s {s} ch {ch}: {e}"));
+        }
+    }
+}
+
+#[test]
 fn coarse_dropout_holes_larger_than_the_image() {
     let s = spec(vec![Transform::coarse_dropout((4, 4), (500.0, 900.0), 1.0)])
         .with_bboxes(BboxParams::new(BboxFormat::PascalVoc));

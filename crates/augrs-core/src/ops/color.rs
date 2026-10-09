@@ -99,7 +99,10 @@ fn saturation_u8_impl(a: &mut Array3<u8>, f: f64) {
     if f == 1.0 || c < 3 {
         return;
     }
-    let fq = (f * 4096.0).round() as i32;
+    // 12-bit fixed point: `pixel * fq` must fit i32. Beyond f = 256 every pixel that differs from
+    // its gray value by >= 1 already saturates to 0 or 255, so clamping is behaviour-preserving
+    // and keeps huge factors (fuzz: saturation up to 1e9) from overflowing.
+    let fq = (f.clamp(0.0, 256.0) * 4096.0).round() as i32;
     let gq = 4096 - fq;
     let (mut r, mut g, mut b) = ([0i32; BLK], [0i32; BLK], [0i32; BLK]);
     #[allow(unused_mut)]
