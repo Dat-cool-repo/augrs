@@ -1669,11 +1669,13 @@ impl Transform {
                     }
                     let gray = c == 1;
                     // Albumentations: hue/sat shifts are ignored on gray images; offsets
-                    // are truncated to integers (OpenCV `add` with an int value)
+                    // are truncated to integers (OpenCV `add` with an int value). Any offset beyond
+                    // +-255 saturates the 0..=255 clamp anyway; keeping it in that range also stops
+                    // `pixel + offset` from overflowing i32 (fuzz crash with val_shift_limit ~ f64::MAX).
                     let edit = HsvEdit {
                         hue_lut: if dh != 0.0 && !gray { Some(hue_lut(dh)) } else { None },
-                        sat_add: if gray { 0 } else { ds as i32 },
-                        val_add: dv as i32,
+                        sat_add: if gray { 0 } else { (ds as i32).clamp(-255, 255) },
+                        val_add: (dv as i32).clamp(-255, 255),
                         keep_gray_sat: true,
                     };
                     if dh == 0.0 && ds == 0.0 && dv == 0.0 {

@@ -297,6 +297,30 @@ fn rng_handles_extreme_ranges() {
 }
 
 #[test]
+fn hsv_shifts_beyond_the_pixel_range_saturate() {
+    // fuzz crash: a value shift near f64::MAX became i32::MAX and `v + val_add` overflowed
+    for (sat, val) in [
+        (0.0, f64::MAX),
+        (0.0, -f64::MAX),
+        (f64::MAX, 0.0),
+        (-1e300, 1e300),
+        (1e10, -1e10),
+    ] {
+        let t = Transform::HueSaturationValue {
+            hue_shift_limit: (0.0, 0.0),
+            sat_shift_limit: (sat, sat),
+            val_shift_limit: (val, val),
+            p: 1.0,
+        };
+        let p = Pipeline::new(spec(vec![t]), Some(0)).unwrap();
+        for c in [1, 3] {
+            p.apply(Input::image(img(5, 7, c)))
+                .unwrap_or_else(|e| panic!("sat {sat} val {val} c {c}: {e}"));
+        }
+    }
+}
+
+#[test]
 fn coarse_dropout_holes_larger_than_the_image() {
     let s = spec(vec![Transform::coarse_dropout((4, 4), (500.0, 900.0), 1.0)])
         .with_bboxes(BboxParams::new(BboxFormat::PascalVoc));
