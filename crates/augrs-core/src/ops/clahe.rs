@@ -21,7 +21,7 @@ pub fn clahe_channel(src: &[u8], h: usize, w: usize, clip_limit: f64, tiles_x: u
     let (tx_n, ty_n) = (tiles_x.max(1), tiles_y.max(1));
     // OpenCV pads bottom/right by `tiles - (size % tiles)` (a full tile when divisible
     // in one direction but not the other).
-    let (ph, pw) = if w % tx_n == 0 && h % ty_n == 0 {
+    let (ph, pw) = if w.is_multiple_of(tx_n) && h.is_multiple_of(ty_n) {
         (h, w)
     } else {
         (h + ty_n - h % ty_n, w + tx_n - w % tx_n)
